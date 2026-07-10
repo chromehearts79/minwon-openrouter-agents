@@ -3,19 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from dataclasses import asdict
-from html import escape as html_escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .agents import AgentContext, build_agents
 from .events import AgentEvent
-from .models import load_model_config
-from .openrouter import OpenRouterClient
-from .pixel_adapter import PixelAgentsAdapter, PixelAgentsBridge
-from .pipeline import AgentPipeline
-from .run import save_result
+from .run import run_minwon, save_result
 from .xlsx_reader import Minwon, load_minwons
 
 
@@ -27,11 +20,12 @@ class WebState:
     def __init__(self, xlsx: str) -> None:
         self.xlsx = xlsx
         self.minwons = load_minwons(xlsx)
+        self.allow_real_runs = os.getenv("ALLOW_REAL_RUNS", "0") == "1"
 
 
 def create_handler(state: WebState):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "MinwonAgentsWeb/0.1"
+        server_version = "MinwonHarnessWeb/2.0"
 
         def log_message(self, fmt: str, *args: object) -> None:
             print(f"[web] {self.address_string()} - {fmt % args}")
@@ -39,45 +33,64 @@ def create_handler(state: WebState):
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             if parsed.path == "/":
-                return self._send_html(render_index_html())
+                return self._send_html(INDEX_HTML)
             if parsed.path == "/api/minwons":
-                params = parse_qs(parsed.query)
-                limit = int(params.get("limit", ["80"])[0])
+                try:
+                    params = parse_qs(parsed.query)
+                    limit = min(120, max(1, int(params.get("limit", ["80"])[0])))
+                except (TypeError, ValueError):
+                    return self._send_json({"error": "limit must be an integer"}, status=400)
                 return self._send_json(
                     {
                         "xlsx": state.xlsx,
                         "count": len(state.minwons),
-                        "has_api_key": bool(os.getenv("OPENROUTER_API_KEY")),
+                        "has_api_key": _has_api_key(),
+                        "allow_real_runs": state.allow_real_runs,
                         "items": [_minwon_summary(i, item) for i, item in enumerate(state.minwons[:limit], 1)],
                     }
                 )
-            self.send_error(404, "Not Found")
+            self._send_json({"error": "not found"}, status=404)
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
             if parsed.path != "/api/run":
-                self.send_error(404, "Not Found")
-                return
-            length = int(self.headers.get("Content-Length", "0"))
-            payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
-            row = int(payload.get("row") or 1)
-            dry_run = bool(payload.get("dry_run", True))
+                return self._send_json({"error": "not found"}, status=404)
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                return self._send_json({"error": "invalid content length"}, status=400)
+            if length < 2 or length > 65_536:
+                return self._send_json({"error": "request body size is invalid"}, status=400)
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return self._send_json({"error": "body must be valid JSON"}, status=400)
+            if type(payload) is not dict:
+                return self._send_json({"error": "body must be a JSON object"}, status=400)
+            row = payload.get("row", 1)
+            dry_run = payload.get("dry_run", True)
+            if type(row) is not int or type(dry_run) is not bool:
+                return self._send_json({"error": "row must be int and dry_run must be bool"}, status=400)
+            if not dry_run and not state.allow_real_runs:
+                return self._send_json(
+                    {"error": "real model calls are disabled; set ALLOW_REAL_RUNS=1 on a trusted local server"},
+                    status=403,
+                )
             self._run_pipeline(row=row, dry_run=dry_run)
 
         def _run_pipeline(self, *, row: int, dry_run: bool) -> None:
             if row < 1 or row > len(state.minwons):
-                self.send_error(400, f"row must be between 1 and {len(state.minwons)}")
-                return
+                return self._send_json(
+                    {"error": f"row must be between 1 and {len(state.minwons)}"},
+                    status=400,
+                )
             self.send_response(200)
             self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
 
             selected = state.minwons[row - 1]
-            context = AgentContext(minwon=selected, models=load_model_config())
-            pixel = PixelAgentsAdapter()
-            pixel_bridge = PixelAgentsBridge(os.getenv("PIXEL_AGENTS_URL", "http://127.0.0.1:3100"))
-            events: list[dict] = []
+            events: list[dict[str, object]] = []
 
             def write(obj: dict) -> None:
                 self.wfile.write((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
@@ -87,34 +100,28 @@ def create_handler(state: WebState):
                 data = event.to_dict()
                 events.append(data)
                 write(data)
-                pixel_messages = pixel.translate(event)
-                pixel_bridge.send(pixel_messages)
-                for message in pixel_messages:
-                    pixel_event = {"type": "pixel", "message": message}
-                    events.append(pixel_event)
-                    write(pixel_event)
 
             try:
-                boot_messages = pixel.boot_messages()
-                pixel_bridge.send(boot_messages)
-                for message in boot_messages:
-                    pixel_event = {"type": "pixel", "message": message}
-                    events.append(pixel_event)
-                    write(pixel_event)
-                llm = OpenRouterClient(dry_run=dry_run)
-                pipeline = AgentPipeline(build_agents(llm))
-                pipeline.run(context, emit)
-                output = save_result("outputs", row, context, events)
+                context = run_minwon(selected, dry_run=dry_run, emit=emit)
+                output = save_result(
+                    "outputs",
+                    context,
+                    events,
+                    row=row,
+                    dry_run=dry_run,
+                )
                 write(
                     {
                         "type": "result",
+                        "run_id": context.run_id,
+                        "status": context.status.value,
                         "path": str(output),
                         "final": context.final,
-                        "usage": {stage: asdict(usage) for stage, usage in context.usage.items()},
+                        "decision": context.decision.to_dict() if context.decision else None,
                     }
                 )
             except Exception as exc:
-                write({"type": "error", "message": str(exc)})
+                write({"type": "error", "message": " ".join(str(exc).split())[:500]})
 
         def _send_html(self, html: str) -> None:
             body = html.encode("utf-8")
@@ -124,9 +131,9 @@ def create_handler(state: WebState):
             self.end_headers()
             self.wfile.write(body)
 
-        def _send_json(self, payload: dict) -> None:
+        def _send_json(self, payload: dict, *, status: int = 200) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(200)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -145,13 +152,9 @@ def _minwon_summary(index: int, item: Minwon) -> dict[str, str | int]:
     }
 
 
-def pixel_agents_public_url() -> str:
-    return os.getenv("PIXEL_AGENTS_PUBLIC_URL") or os.getenv("PIXEL_AGENTS_URL") or "http://127.0.0.1:3100"
-
-
-def render_index_html() -> str:
-    pixel_url = html_escape(pixel_agents_public_url().rstrip("/"), quote=True)
-    return INDEX_HTML.replace("__PIXEL_AGENTS_PUBLIC_URL__", pixel_url)
+def _has_api_key() -> bool:
+    key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    return bool(key and key != "sk-or-...")
 
 
 def main() -> int:
@@ -173,7 +176,7 @@ def main() -> int:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Minwon Agents web UI")
+    parser = argparse.ArgumentParser(description="민원 답변 초안 하네스 웹 UI")
     parser.add_argument("--xlsx", default=DEFAULT_XLSX)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
@@ -334,16 +337,8 @@ INDEX_HTML = r"""<!doctype html>
       white-space: pre-wrap; color: var(--ink); font-size: 14px; line-height: 1.45;
       max-height: 220px; overflow: auto;
     }
-    .office-section .section-head { background: var(--periwinkle); }
-    .pixel-frame {
-      width: 100%; height: 430px; display: block; border: 1px solid var(--frame);
-      background: var(--frame);
-    }
-    .pixel-note {
-      margin: 8px 0 0; font-size: 12px; line-height: 1.35;
-    }
     .stages {
-      display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 8px;
+      display: grid; grid-template-columns: repeat(7, minmax(100px, 1fr)); gap: 6px;
       background: var(--canvas); padding: 0; color: var(--ink);
     }
     .stage {
@@ -355,6 +350,8 @@ INDEX_HTML = r"""<!doctype html>
     .stage:nth-child(3) { background: var(--sky); }
     .stage:nth-child(4) { background: var(--peach); }
     .stage:nth-child(5) { background: var(--periwinkle); }
+    .stage:nth-child(6) { background: var(--salmon); }
+    .stage:nth-child(7) { background: var(--yellow); }
     .stage::before {
       content: ""; width: 8px; height: 8px; border: 1px solid var(--frame); border-radius: 999px; background: var(--canvas);
       position: absolute; top: 8px; right: 8px;
@@ -433,7 +430,7 @@ INDEX_HTML = r"""<!doctype html>
     <aside>
       <header>
         <h1>민원답변 멀티에이전트</h1>
-        <div class="sub">XLSX 민원을 선택하고 OpenRouter 기반 에이전트 파이프라인을 실행합니다.</div>
+        <div class="sub">입력 → 분석 → 근거 검색 → 작성 → 병렬 검증 → 정책 게이트 흐름을 실행합니다.</div>
       </header>
       <div class="toolbar"><input id="search" type="search" placeholder="민원 제목 검색" /></div>
       <div id="list" class="list"></div>
@@ -458,23 +455,6 @@ INDEX_HTML = r"""<!doctype html>
           <div class="section-body">
             <h2 id="selected-title" class="selected-title">왼쪽에서 민원을 선택하세요</h2>
             <div id="selected-body" class="body-text"></div>
-          </div>
-        </section>
-
-        <section class="section office-section">
-          <div class="section-head">
-            <div class="section-title">PIXEL AGENTS OFFICE</div>
-            <span class="pill">원본 Webview</span>
-          </div>
-          <div class="section-body">
-            <iframe
-              class="pixel-frame"
-              title="Pixel Agents Office"
-              src="__PIXEL_AGENTS_PUBLIC_URL__"
-            ></iframe>
-            <p class="pixel-note">
-              Pixel Agents 원본 standalone webview입니다. 아래 에이전트 실행 버튼을 누르면 민원 파이프라인 이벤트가 이 화면으로 전송됩니다.
-            </p>
           </div>
         </section>
 
@@ -517,11 +497,16 @@ INDEX_HTML = r"""<!doctype html>
         </section>
 
         <section class="section">
-          <div class="section-head"><div class="section-title">최종 답변</div><span class="pill" id="result-path">저장 전</span></div>
+          <div class="section-head"><div class="section-title">정책 게이트</div><span class="pill" id="gate-status">판정 전</span></div>
+          <div class="section-body"><div id="gate-reasons" class="answer">검증 완료 후 공개 여부가 표시됩니다.</div></div>
+        </section>
+
+        <section class="section">
+          <div class="section-head"><div class="section-title">승격된 최종 답변</div><span class="pill" id="result-path">저장 전</span></div>
           <div class="section-body"><div id="final" class="answer">-</div></div>
         </section>
 
-        <section class="section hidden" id="event-section">
+        <section class="section" id="event-section">
           <div class="section-head"><div class="section-title">이벤트 로그</div></div>
           <div class="section-body"><div id="log" class="log"></div></div>
         </section>
@@ -532,10 +517,12 @@ INDEX_HTML = r"""<!doctype html>
   <script>
     const stages = [
       ["intake", "입력"],
-      ["classify", "분류"],
+      ["analyze", "분석"],
       ["retrieve", "검색"],
       ["draft", "작성"],
-      ["review", "검수"],
+      ["grounding", "근거검증"],
+      ["quality", "품질검수"],
+      ["gate", "정책게이트"],
     ];
     const state = { items: [], filtered: [], selected: null, running: false };
 
@@ -573,6 +560,8 @@ INDEX_HTML = r"""<!doctype html>
       el("evidence").textContent = "근거 후보를 찾는 중입니다.";
       el("draft").textContent = "-";
       el("final").textContent = "-";
+      el("gate-status").textContent = "판정 전";
+      el("gate-reasons").textContent = "검증 완료 후 공개 여부가 표시됩니다.";
       el("result-path").textContent = "저장 전";
       el("log").textContent = "";
     }
@@ -615,8 +604,12 @@ INDEX_HTML = r"""<!doctype html>
       state.filtered = data.items;
       el("source").textContent = `${data.count}건 로드 · ${data.xlsx}`;
       el("key-status").innerHTML = data.has_api_key
-        ? "OpenRouter API 키 감지됨. dry-run을 끄면 실제 모델 호출."
+        ? (data.allow_real_runs
+          ? "OpenRouter API 키 감지됨 · 이 로컬 서버는 실제 호출 허용 상태."
+          : "OpenRouter API 키 감지됨 · 안전을 위해 웹 실제 호출은 비활성화됨.")
         : "<span class='warn'>OpenRouter API 키 없음</span> · dry-run으로 화면/흐름 확인 가능.";
+      dryRun.checked = true;
+      dryRun.disabled = !data.allow_real_runs;
       renderList();
       if (state.items[0]) selectRow(state.items[0].row);
     }
@@ -638,6 +631,10 @@ INDEX_HTML = r"""<!doctype html>
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ row: state.selected.row, dry_run: dryRun.checked }),
         });
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || `HTTP ${res.status}`);
+        }
         const reader = res.body.getReader();
         const dec = new TextDecoder();
         let buf = "";
@@ -662,26 +659,30 @@ INDEX_HTML = r"""<!doctype html>
 
     function handleEvent(event) {
       log(event);
-      if (event.type === "pixel") return;
       if (event.type === "stage" && event.stage) {
         setStage(event.stage, event.status, event.message);
-        if (event.status === "done" && event.stage === "classify") {
+        if (event.status === "done" && event.stage === "analyze") {
           renderClassification(event.data || {});
         }
         if (event.status === "done" && event.stage === "retrieve") {
-          renderEvidence(event.data.evidence || []);
+          renderEvidence(event.data.items || []);
         }
         if (event.status === "done" && event.stage === "draft") {
-          el("draft").textContent = event.data.draft || "";
+          el("draft").textContent = event.data.text || "";
         }
-        if (event.status === "done" && event.stage === "review") {
-          el("summary-status").textContent = "검수 완료";
-          el("final").textContent = event.data.final || event.data.review?.final || "";
+        if (event.status === "done" && event.stage === "quality") {
+          el("summary-status").textContent = `품질검수 ${event.data.passed ? "통과" : "미통과"} · ${event.data.score}점`;
         }
+        if (event.status === "done" && event.stage === "gate") {
+          renderGate(event.data || {});
+        }
+      }
+      if (event.type === "done") {
+        el("summary-status").textContent = statusLabel(event.status);
       }
       if (event.type === "result") {
         el("result-path").textContent = event.path;
-        if (event.final) el("final").textContent = event.final;
+        el("final").textContent = event.final || "자동 공개가 차단되었습니다. 저장된 초안을 담당자가 검토해야 합니다.";
       }
       if (event.type === "error") {
         el("summary-status").textContent = "오류";
@@ -691,9 +692,12 @@ INDEX_HTML = r"""<!doctype html>
 
     function renderClassification(data) {
       el("summary-status").textContent = "분류 완료";
-      el("category").textContent = data.category || "-";
+      const secondary = Array.isArray(data.secondary_categories) && data.secondary_categories.length
+        ? ` · 부 분류 ${data.secondary_categories.join(", ")}` : "";
+      el("category").textContent = (data.primary_category || "-") + secondary;
       el("department").textContent = data.department || "소관 확인 필요";
-      el("difficulty").textContent = data.difficulty ? `난이도 ${data.difficulty}` : "-";
+      el("difficulty").textContent = data.difficulty
+        ? `난이도 ${data.difficulty}${data.sensitive ? " · 민감" : ""}` : "-";
       el("issues").textContent = Array.isArray(data.issues) && data.issues.length ? data.issues.join(" · ") : "-";
       el("laws").textContent = Array.isArray(data.law_queries) && data.law_queries.length
         ? data.law_queries.slice(0, 2).join(", ") + (data.law_queries.length > 2 ? " 외" : "")
@@ -708,10 +712,30 @@ INDEX_HTML = r"""<!doctype html>
       }
       el("evidence").innerHTML = items.map(item => `
         <div class="evidence-item">
-          <div class="evidence-title">${escapeHtml(item.title || "근거 후보")}</div>
-          <div class="evidence-summary">${escapeHtml(item.summary || "")}</div>
+          <div class="evidence-title">[${escapeHtml(item.id || "-")}] ${escapeHtml(item.title || "근거 후보")}</div>
+          <div class="evidence-summary">${escapeHtml(item.excerpt || "")}</div>
+          <div class="evidence-summary">확인일 ${escapeHtml(item.checked_at || "-")} · <a href="${escapeHtml(item.source_url || "#")}" target="_blank" rel="noreferrer">공식 원문 후보</a></div>
         </div>
       `).join("");
+    }
+
+    function renderGate(data) {
+      el("gate-status").textContent = statusLabel(data.status);
+      const reasons = Array.isArray(data.reasons) && data.reasons.length
+        ? data.reasons.join(" · ") : "모든 자동 검증을 통과했습니다.";
+      el("gate-reasons").textContent = reasons;
+      if (data.status !== "completed") {
+        el("final").textContent = "자동 공개가 차단되었습니다. 초안과 차단 사유를 담당자가 확인해야 합니다.";
+      }
+    }
+
+    function statusLabel(status) {
+      return ({
+        completed: "검증 통과",
+        human_review_required: "사람 검토 필요",
+        failed: "실행 실패",
+        running: "실행 중",
+      })[status] || status || "상태 미확인";
     }
 
     initStages();

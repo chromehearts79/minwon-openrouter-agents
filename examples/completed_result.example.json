@@ -1,0 +1,32 @@
+{
+  "example_type": "abridged_dry_run_result",
+  "input": {
+    "row": 17,
+    "title": "시간외근무수당 및 관내여비 중복 지급 건"
+  },
+  "output": {
+    "status": "completed",
+    "primary_category": "보수·수당",
+    "secondary_categories": [
+      "여비"
+    ],
+    "evidence": [
+      {
+        "id": "E5",
+        "title": "공무원수당 등에 관한 규정"
+      },
+      {
+        "id": "E6",
+        "title": "공무원 여비 규정"
+      }
+    ],
+    "draft_citations": [
+      "E5",
+      "E6"
+    ],
+    "grounding_passed": true,
+    "quality_score": 100,
+    "gate_reasons": [],
+    "final_available": true
+  }
+}

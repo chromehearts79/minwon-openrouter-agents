@@ -1,0 +1,25 @@
+{
+  "example_type": "abridged_dry_run_result",
+  "input": {
+    "row": 25,
+    "title": "공무원 피의사건 처리 문의"
+  },
+  "output": {
+    "status": "human_review_required",
+    "primary_category": "기타",
+    "difficulty": "상",
+    "sensitive": true,
+    "evidence": [
+      {
+        "id": "E10",
+        "title": "공무원 비위사건 처리규정"
+      }
+    ],
+    "gate_reasons": [
+      "SENSITIVE_CASE",
+      "HIGH_DIFFICULTY"
+    ],
+    "draft_available_for_staff": true,
+    "final_available": false
+  }
+}

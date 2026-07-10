@@ -1,0 +1,1080 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-07-10T15:04:13.036071+00:00",
+  "mode": "dry-run",
+  "scope": "all",
+  "inputs": {
+    "xlsx": "data/minwon_sample.xlsx",
+    "cases": "eval/minwon_core_cases.json",
+    "xlsx_rows": 40,
+    "evaluated_rows": 40
+  },
+  "summary": {
+    "passed": true,
+    "case_count": 40,
+    "expectation_failure_count": 0,
+    "invariant_violation_count": 0,
+    "final_exposure_violation_count": 0,
+    "metrics": {
+      "category": {
+        "checked": 10,
+        "passed": 10,
+        "accuracy": 1.0
+      },
+      "secondary": {
+        "checked": 2,
+        "passed": 2,
+        "accuracy": 1.0
+      },
+      "status": {
+        "checked": 10,
+        "passed": 10,
+        "accuracy": 1.0
+      },
+      "evidence": {
+        "checked": 8,
+        "passed": 8,
+        "accuracy": 1.0
+      },
+      "sensitive": {
+        "checked": 2,
+        "passed": 2,
+        "accuracy": 1.0
+      }
+    }
+  },
+  "expectation_failures": [],
+  "invariant_violations": [],
+  "results": [
+    {
+      "id": "row-001",
+      "row": 1,
+      "request_id": "1xx-xxxx-000001",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "기타",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "human_review_required",
+        "evidence_ids": [],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-002",
+      "row": 2,
+      "request_id": "1xx-xxxx-000002",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "여비",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E6"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "system-password-mail",
+      "row": 3,
+      "request_id": "1xx-xxxx-000003",
+      "purpose": "시험이라는 주변 맥락보다 시스템 장애가 우선 분류되는지 확인",
+      "actual": {
+        "primary_category": "시스템",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E8"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": true,
+        "secondary": null,
+        "status": true,
+        "evidence": true,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "promotion-minimum-years",
+      "row": 4,
+      "request_id": "1xx-xxxx-000004",
+      "purpose": "임용·승진 민원을 인사로 분류하고 관련 임용 근거를 연결",
+      "actual": {
+        "primary_category": "인사",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E3",
+          "E2"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": true,
+        "secondary": null,
+        "status": true,
+        "evidence": true,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-005",
+      "row": 5,
+      "request_id": "1xx-xxxx-000005",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "채용·시험",
+        "secondary_categories": [
+          "시스템"
+        ],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E7",
+          "E8"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-006",
+      "row": 6,
+      "request_id": "1xx-xxxx-000006",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "복무",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E1",
+          "E4"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-007",
+      "row": 7,
+      "request_id": "1xx-xxxx-000007",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "채용·시험",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E7"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-008",
+      "row": 8,
+      "request_id": "1xx-xxxx-000008",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "기타",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "human_review_required",
+        "evidence_ids": [],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-009",
+      "row": 9,
+      "request_id": "1xx-xxxx-000009",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "시스템",
+        "secondary_categories": [
+          "채용·시험"
+        ],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E8",
+          "E7"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-010",
+      "row": 10,
+      "request_id": "1xx-xxxx-000010",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "복무",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E9"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-011",
+      "row": 11,
+      "request_id": "1xx-xxxx-000011",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "인사",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E2",
+          "E1",
+          "E9"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "retirement-allowance-interpretation",
+      "row": 12,
+      "request_id": "1xx-xxxx-000012",
+      "purpose": "퇴직 관련 수당 법령 해석 문의의 주 분류와 근거 연결",
+      "actual": {
+        "primary_category": "보수·수당",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E13",
+          "E5",
+          "E1"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": true,
+        "secondary": null,
+        "status": true,
+        "evidence": true,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-013",
+      "row": 13,
+      "request_id": "1xx-xxxx-000013",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "복무",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E1",
+          "E4"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-014",
+      "row": 14,
+      "request_id": "1xx-xxxx-000014",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "인사",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E2",
+          "E3",
+          "E1"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-015",
+      "row": 15,
+      "request_id": "1xx-xxxx-000015",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "시스템",
+        "secondary_categories": [
+          "채용·시험"
+        ],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E8",
+          "E7"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-016",
+      "row": 16,
+      "request_id": "1xx-xxxx-000016",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "기타",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "human_review_required",
+        "evidence_ids": [],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "overtime-and-local-travel",
+      "row": 17,
+      "request_id": "1xx-xxxx-000017",
+      "purpose": "수당과 여비가 함께 있는 다중 분류 및 교차 근거 확인",
+      "actual": {
+        "primary_category": "보수·수당",
+        "secondary_categories": [
+          "여비"
+        ],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E5",
+          "E6"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": true,
+        "secondary": true,
+        "status": true,
+        "evidence": true,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "flex-work-return-time",
+      "row": 18,
+      "request_id": "1xx-xxxx-000018",
+      "purpose": "유연근무와 출장 상황의 핵심을 복무로 분류",
+      "actual": {
+        "primary_category": "복무",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E4"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": true,
+        "secondary": null,
+        "status": true,
+        "evidence": true,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-019",
+      "row": 19,
+      "request_id": "1xx-xxxx-000019",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "인사",
+        "secondary_categories": [
+          "보수·수당"
+        ],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E12",
+          "E3",
+          "E5"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "political-appointment-opinion",
+      "row": 20,
+      "request_id": "1xx-xxxx-000020",
+      "purpose": "정책 의견을 채용 문의로 오분류하지 않고 사람 검토로 보냄",
+      "actual": {
+        "primary_category": "정책의견",
+        "secondary_categories": [],
+        "sensitive": true,
+        "status": "human_review_required",
+        "evidence_ids": [],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": true,
+        "secondary": null,
+        "status": true,
+        "evidence": null,
+        "sensitive": true
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-021",
+      "row": 21,
+      "request_id": "1xx-xxxx-000021",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "복무",
+        "secondary_categories": [],
+        "sensitive": true,
+        "status": "human_review_required",
+        "evidence_ids": [
+          "E4",
+          "E9"
+        ],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-022",
+      "row": 22,
+      "request_id": "1xx-xxxx-000022",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "여비",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E6"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-023",
+      "row": 23,
+      "request_id": "1xx-xxxx-000023",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "여비",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E6"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-024",
+      "row": 24,
+      "request_id": "1xx-xxxx-000024",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "복무",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E9"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "criminal-case-and-discipline",
+      "row": 25,
+      "request_id": "1xx-xxxx-000025",
+      "purpose": "범죄·징계 관련 민감 민원의 자동 공개 차단",
+      "actual": {
+        "primary_category": "기타",
+        "secondary_categories": [],
+        "sensitive": true,
+        "status": "human_review_required",
+        "evidence_ids": [
+          "E10",
+          "E9"
+        ],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": true,
+        "secondary": null,
+        "status": true,
+        "evidence": true,
+        "sensitive": true
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-026",
+      "row": 26,
+      "request_id": "1xx-xxxx-000026",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "복무",
+        "secondary_categories": [],
+        "sensitive": true,
+        "status": "human_review_required",
+        "evidence_ids": [
+          "E4",
+          "E11",
+          "E1"
+        ],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "salary-overpayment-limitation",
+      "row": 27,
+      "request_id": "1xx-xxxx-000027",
+      "purpose": "급여 환수·소멸시효 문의에서 근거 부족 시 보수적 라우팅",
+      "actual": {
+        "primary_category": "보수·수당",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "human_review_required",
+        "evidence_ids": [],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": true,
+        "secondary": null,
+        "status": true,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-028",
+      "row": 28,
+      "request_id": "1xx-xxxx-000028",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "채용·시험",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E7",
+          "E8"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-029",
+      "row": 29,
+      "request_id": "1xx-xxxx-000029",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "정책의견",
+        "secondary_categories": [],
+        "sensitive": true,
+        "status": "human_review_required",
+        "evidence_ids": [],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-030",
+      "row": 30,
+      "request_id": "1xx-xxxx-000030",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "시스템",
+        "secondary_categories": [
+          "채용·시험"
+        ],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E8",
+          "E7"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "overtime-calculation",
+      "row": 31,
+      "request_id": "1xx-xxxx-000031",
+      "purpose": "초과근무 수당과 복무시간의 다중 쟁점 보존",
+      "actual": {
+        "primary_category": "보수·수당",
+        "secondary_categories": [
+          "복무"
+        ],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E5",
+          "E4"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": true,
+        "secondary": true,
+        "status": true,
+        "evidence": true,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-032",
+      "row": 32,
+      "request_id": "1xx-xxxx-000032",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "여비",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E6"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-033",
+      "row": 33,
+      "request_id": "1xx-xxxx-000033",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "복무",
+        "secondary_categories": [],
+        "sensitive": true,
+        "status": "human_review_required",
+        "evidence_ids": [
+          "E4",
+          "E1"
+        ],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-034",
+      "row": 34,
+      "request_id": "1xx-xxxx-000034",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "여비",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E6"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-035",
+      "row": 35,
+      "request_id": "1xx-xxxx-000035",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "여비",
+        "secondary_categories": [],
+        "sensitive": true,
+        "status": "human_review_required",
+        "evidence_ids": [
+          "E6",
+          "E1",
+          "E4"
+        ],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-036",
+      "row": 36,
+      "request_id": "1xx-xxxx-000036",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "인사",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E2",
+          "E3",
+          "E13"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-037",
+      "row": 37,
+      "request_id": "1xx-xxxx-000037",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "정책의견",
+        "secondary_categories": [],
+        "sensitive": true,
+        "status": "human_review_required",
+        "evidence_ids": [],
+        "final_available": false,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-038",
+      "row": 38,
+      "request_id": "1xx-xxxx-000038",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "인사",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E2",
+          "E3",
+          "E13"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "retroactive-service-allowance",
+      "row": 39,
+      "request_id": "1xx-xxxx-000039",
+      "purpose": "정근수당 소급 문의의 수당 분류와 공식 근거 후보 연결",
+      "actual": {
+        "primary_category": "보수·수당",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E5"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": true,
+        "secondary": null,
+        "status": true,
+        "evidence": true,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    },
+    {
+      "id": "row-040",
+      "row": 40,
+      "request_id": "1xx-xxxx-000040",
+      "purpose": "전체 데이터 불변조건 검사",
+      "actual": {
+        "primary_category": "보수·수당",
+        "secondary_categories": [],
+        "sensitive": false,
+        "status": "completed",
+        "evidence_ids": [
+          "E5",
+          "E4"
+        ],
+        "final_available": true,
+        "revision_count": 0
+      },
+      "checks": {
+        "category": null,
+        "secondary": null,
+        "status": null,
+        "evidence": null,
+        "sensitive": null
+      },
+      "expectation_failures": []
+    }
+  ]
+}

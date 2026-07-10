@@ -3,4 +3,6 @@
 outputs/
 __pycache__/
 *.pyc
-pixel-agents-runtime/
+.DS_Store
+.coverage
+htmlcov/

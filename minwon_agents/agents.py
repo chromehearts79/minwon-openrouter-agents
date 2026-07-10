@@ -1,408 +1,453 @@
 from __future__ import annotations
 
+"""Agent roles for the evidence-grounded civil-petition harness.
+
+Each role has one narrow responsibility and returns an immutable artifact from
+``contracts.py``.  The orchestration order and release decision deliberately
+live outside the agents so no model can approve its own answer.
+"""
+
 import json
 import re
-from dataclasses import asdict, dataclass, field
-from typing import Callable, Protocol
+from dataclasses import dataclass, field
+from typing import Callable
 
-from .events import AgentEvent, Usage, stage_done, stage_start
+from .analysis import analyze
+from .contracts import (
+    AnalysisArtifact,
+    DraftArtifact,
+    EvidenceBundle,
+    GateDecision,
+    GroundingReview,
+    IntakeArtifact,
+    QualityCheck,
+    QualityReview,
+    RunResult,
+    RunStatus,
+    new_run_id,
+)
+from .events import AgentEvent, Usage
+from .guardrails import InputGuard, contains_pii
 from .models import ModelConfig
 from .openrouter import OpenRouterClient, parse_json_object
+from .policy import PolicyGate, validate_citations
+from .retrieval import retrieve_evidence
 from .xlsx_reader import Minwon
 
 
 EventSink = Callable[[AgentEvent], None]
-
-
-class Agent(Protocol):
-    name: str
-
-    def run(self, context: "AgentContext", emit: EventSink) -> None:
-        ...
-
-
-@dataclass
-class Classification:
-    department: str
-    category: str
-    difficulty: str
-    sensitive: bool
-    issues: list[str]
-    law_queries: list[str]
-    keywords: list[str]
-
-
-@dataclass
-class Evidence:
-    title: str
-    source: str
-    summary: str
-    matched_keywords: list[str] = field(default_factory=list)
+_CITATION_RE = re.compile(r"\[(E[1-9][0-9]*)\]", re.IGNORECASE)
 
 
 @dataclass
 class AgentContext:
+    """Mutable run state; stage values themselves are immutable contracts."""
+
     minwon: Minwon
     models: ModelConfig
-    classification: Classification | None = None
-    evidence: list[Evidence] = field(default_factory=list)
-    draft: str = ""
-    final: str = ""
+    run_id: str = field(default_factory=new_run_id)
+    status: RunStatus = RunStatus.RUNNING
+    intake: IntakeArtifact | None = None
+    analysis: AnalysisArtifact | None = None
+    evidence: EvidenceBundle | None = None
+    draft: DraftArtifact | None = None
+    grounding_review: GroundingReview | None = None
+    quality_review: QualityReview | None = None
+    decision: GateDecision | None = None
+    final: str | None = None
+    revision_count: int = 0
     usage: dict[str, Usage] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+
+    def to_result(self) -> RunResult:
+        decision = self.decision
+        if decision is None:
+            decision = GateDecision(
+                status=RunStatus.FAILED,
+                passed=False,
+                reasons=("MISSING_GATE_DECISION",),
+                allow_revision=False,
+            )
+        return RunResult(
+            run_id=self.run_id,
+            status=decision.status,
+            intake=self.intake,
+            analysis=self.analysis,
+            evidence=self.evidence,
+            draft=self.draft,
+            grounding_review=self.grounding_review,
+            quality_review=self.quality_review,
+            decision=decision,
+            final=self.final if decision.status is RunStatus.COMPLETED else None,
+        )
 
 
 class IntakeAgent:
     name = "IntakeAgent"
 
-    def run(self, context: AgentContext, emit: EventSink) -> None:
-        emit(stage_start("intake", "민원 원문을 읽는 중"))
-        emit(
-            stage_done(
-                "intake",
-                "민원 입력 준비 완료",
-                {
-                    "request_id": context.minwon.request_id,
-                    "title": context.minwon.title,
-                    "body_chars": len(context.minwon.body),
-                },
-            )
+    def __init__(self, guard: InputGuard | None = None) -> None:
+        self.guard = guard or InputGuard()
+
+    def run(self, context: AgentContext) -> IntakeArtifact:
+        return self.guard.prepare(
+            request_id=context.minwon.request_id,
+            title=context.minwon.title,
+            body=context.minwon.body,
+            run_id=context.run_id,
         )
 
 
-class ClassifyAgent:
-    name = "ClassifyAgent"
+class AnalyzeAgent:
+    name = "AnalyzeAgent"
 
-    SYSTEM = """너는 대한민국 중앙행정기관의 민원 분류 담당자다.
-민원을 읽고 후속 검색/답변 작성 단계가 쓸 수 있게 구조화한다.
-반드시 순수 JSON 객체만 출력한다.
-
-스키마:
+    SYSTEM = """너는 중앙행정기관 민원 분석 담당자다.
+개인정보가 마스킹된 민원을 다중 분류하고, 다음 단계가 사용할 구조만 만든다.
+반드시 설명이나 코드블록 없이 아래 키를 모두 가진 JSON 객체만 출력한다.
+primary_category는 인사|복무|보수·수당|여비|채용·시험|시스템|정책의견|기타 중 하나,
+secondary_categories는 위 목록 중 최대 3개(주 분류 제외), difficulty는 상|중|하,
+sensitive는 JSON boolean이어야 한다.
 {
+  "primary_category": "인사",
+  "secondary_categories": [],
   "department": "추정 소관",
-  "category": "인사|복무|보수·수당|여비|채용·시험|시스템|정책의견|기타 중 하나",
-  "difficulty": "상|중|하",
-  "sensitive": true 또는 false,
-  "issues": ["핵심 쟁점 1~3개"],
-  "law_queries": ["검색할 법령명 1~4개"],
-  "keywords": ["조문/근거 검색 키워드 3~8개"]
+  "difficulty": "중",
+  "sensitive": false,
+  "issues": ["핵심 쟁점"],
+  "law_queries": ["검색할 법령명"],
+  "keywords": ["검색어"]
 }"""
 
     def __init__(self, llm: OpenRouterClient) -> None:
         self.llm = llm
 
-    def run(self, context: AgentContext, emit: EventSink) -> None:
-        emit(stage_start("classify", "민원 유형과 검색 키워드를 분류 중"))
+    def run(self, context: AgentContext) -> AnalysisArtifact:
+        intake = _require(context.intake, "intake")
         if self.llm.dry_run:
-            data = _heuristic_classify(context.minwon.title, context.minwon.body)
-        else:
-            result = self.llm.chat_json(
-                model=context.models.classify,
-                system=self.SYSTEM,
-                user=f"[제목]\n{context.minwon.title}\n\n[본문]\n{context.minwon.body}",
-                max_tokens=800,
-            )
-            context.usage["classify"] = result.usage
-            data = parse_json_object(result.text) or _heuristic_classify(
-                context.minwon.title, context.minwon.body
-            )
-
-        classification = Classification(
-            department=str(data.get("department") or "확인 필요"),
-            category=str(data.get("category") or "기타"),
-            difficulty=str(data.get("difficulty") or "중"),
-            sensitive=bool(data.get("sensitive") or False),
-            issues=_str_list(data.get("issues"), fallback=["핵심 쟁점 확인 필요"]),
-            law_queries=_str_list(data.get("law_queries") or data.get("lawQueries"), fallback=[]),
-            keywords=_str_list(data.get("keywords"), fallback=[]),
+            return analyze(intake.masked_title, intake.masked_body)
+        result = self.llm.chat_json(
+            model=context.models.classify,
+            system=self.SYSTEM,
+            user=f"[제목]\n{intake.masked_title}\n\n[본문]\n{intake.masked_body}",
+            max_tokens=1_000,
         )
-        context.classification = classification
-        emit(stage_done("classify", "분류 완료", asdict(classification)))
+        _reject_truncated(result.finish_reason, "analysis")
+        context.usage["analyze"] = result.usage
+        data = parse_json_object(result.text)
+        if data is None:
+            raise ValueError("analysis model did not return a JSON object")
+        return AnalysisArtifact.from_dict(data)
 
 
-class RetrieveAgent:
-    name = "RetrieveAgent"
+class EvidenceAgent:
+    name = "EvidenceAgent"
 
-    LOCAL_KNOWLEDGE = [
-        Evidence(
-            title="국가공무원법",
-            source="local-rule",
-            summary="국가공무원의 임용, 휴직, 복무, 신분 보장 등 기본 사항의 상위 법률이다.",
-        ),
-        Evidence(
-            title="공무원임용령",
-            source="local-rule",
-            summary="채용, 승진, 전보, 경력 산정 등 국가공무원 임용 절차를 구체화한다.",
-        ),
-        Evidence(
-            title="공무원 임용규칙",
-            source="local-rule",
-            summary="승진소요최저연수, 경력환산 등 임용령 운영에 필요한 세부 기준을 둔다.",
-        ),
-        Evidence(
-            title="국가공무원 복무규정",
-            source="local-rule",
-            summary="근무시간, 유연근무, 출장, 휴가 등 복무 기준을 규정한다.",
-        ),
-        Evidence(
-            title="공무원수당 등에 관한 규정",
-            source="local-rule",
-            summary="초과근무수당, 정근수당, 명예퇴직수당 등 각종 수당의 지급 기준을 규정한다.",
-        ),
-        Evidence(
-            title="공무원 여비 규정",
-            source="local-rule",
-            summary="출장 시 운임, 일비, 식비, 숙박비, 자가용 사용 시 지급 기준을 규정한다.",
-        ),
-        Evidence(
-            title="공무원임용시험령",
-            source="local-rule",
-            summary="국가공무원 공개경쟁채용시험, 자격요건, 가산점, 시험 절차 등을 규정한다.",
-        ),
-        Evidence(
-            title="사이버국가고시센터 안내",
-            source="local-rule",
-            summary="원서접수, 비밀번호, 인증서, 시험성적 등록 등 시스템 이용 문의는 사이트 고객지원 확인이 필요하다.",
-        ),
-    ]
-
-    def run(self, context: AgentContext, emit: EventSink) -> None:
-        emit(stage_start("retrieve", "관련 법령과 근거 후보를 검색 중"))
-        cls = context.classification
-        keywords = cls.keywords if cls else []
-        law_queries = cls.law_queries if cls else []
-        scored: list[tuple[int, Evidence]] = []
-
-        for item in self.LOCAL_KNOWLEDGE:
-            score, matched = _evidence_score(item, law_queries, keywords, context.minwon)
-            if score > 0:
-                scored.append(
-                    (
-                        score,
-                        Evidence(
-                            title=item.title,
-                            source=item.source,
-                            summary=item.summary,
-                            matched_keywords=matched,
-                        ),
-                    )
-                )
-
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-        picked = [item for _, item in scored]
-
-        if not picked:
-            picked = [
-                Evidence(
-                    title="소관 부서 확인 필요",
-                    source="fallback",
-                    summary="현재 로컬 근거 후보로는 직접 관련 법령을 특정하기 어렵다. 답변에서는 단정적 법령 인용을 피하고 소관 부서 확인을 안내한다.",
-                    matched_keywords=[],
-                )
-            ]
-
-        context.evidence = picked[:4]
-        emit(stage_done("retrieve", "근거 후보 검색 완료", {"evidence": [asdict(e) for e in context.evidence]}))
+    def run(self, context: AgentContext) -> EvidenceBundle:
+        intake = _require(context.intake, "intake")
+        analysis_artifact = _require(context.analysis, "analysis")
+        return retrieve_evidence(
+            f"{intake.masked_title}\n{intake.masked_body}",
+            analysis_artifact,
+            limit=3,
+        )
 
 
 class DraftAgent:
     name = "DraftAgent"
 
-    SYSTEM = """너는 중앙행정기관 민원 답변 초안을 작성하는 주무관이다.
-검색된 근거 후보만 사용하고, 근거가 부족하면 단정하지 말고 확인 절차를 안내한다.
-정중하고 명확한 공직 답변체로 작성한다."""
+    SYSTEM = """너는 중앙행정기관의 민원 답변 '초안' 작성자다.
+제공된 근거 후보 밖의 법령, 조문 번호, 사실을 만들지 않는다.
+근거를 사용한 문장 끝에는 반드시 [E1] 같은 제공된 근거 ID를 붙인다.
+근거가 부족하면 단정하지 않고 사실관계 및 최신 공식 근거 확인 절차를 안내한다.
+답변은 정중한 한국어 공직 답변체로 작성하고, 자동 생성 초안임을 명시한다.
+JSON이나 코드블록이 아닌 답변 본문만 출력한다."""
 
     def __init__(self, llm: OpenRouterClient) -> None:
         self.llm = llm
 
-    def run(self, context: AgentContext, emit: EventSink) -> None:
-        emit(stage_start("draft", "민원 답변 초안을 작성 중"))
+    def run(
+        self,
+        context: AgentContext,
+        *,
+        revision: int = 0,
+        feedback: tuple[str, ...] = (),
+    ) -> DraftArtifact:
+        if revision not in (0, 1):
+            raise ValueError("revision must be 0 or 1")
         if self.llm.dry_run:
-            context.draft = _dry_draft(context)
+            text = _dry_draft(context, revision=revision, feedback=feedback)
         else:
             result = self.llm.chat_text(
                 model=context.models.draft,
                 system=self.SYSTEM,
-                user=_draft_prompt(context),
-                max_tokens=1800,
-                temperature=0.35,
+                user=_draft_prompt(context, revision=revision, feedback=feedback),
+                max_tokens=1_800,
+                temperature=0.25,
             )
-            context.usage["draft"] = result.usage
-            context.draft = result.text.strip()
-        emit(stage_done("draft", "초안 작성 완료", {"chars": len(context.draft), "draft": context.draft}))
+            _reject_truncated(result.finish_reason, "draft")
+            context.usage[f"draft_{revision}"] = result.usage
+            text = result.text.strip()
+        if not text:
+            raise ValueError("draft model returned empty text")
+        citations = tuple(
+            dict.fromkeys(match.upper() for match in _CITATION_RE.findall(text))
+        )
+        return DraftArtifact(text=text, citations=citations, revision=revision)
 
 
-class ReviewAgent:
-    name = "ReviewAgent"
+class GroundingReviewAgent:
+    name = "GroundingReviewAgent"
 
-    SYSTEM = """너는 민원 답변 최종 검수 담당자다.
-초안의 말투, 근거 인용, 환각 가능성, 누락 여부를 검토하고 최종본을 만든다.
-반드시 JSON 객체만 출력한다.
+    def run(self, context: AgentContext) -> GroundingReview:
+        evidence = _require(context.evidence, "evidence")
+        draft = _require(context.draft, "draft")
+        return validate_citations(draft.text, (item.id for item in evidence.items))
 
-스키마:
+
+class QualityReviewAgent:
+    name = "QualityReviewAgent"
+
+    SYSTEM = """너는 민원 답변 초안의 독립 검수자다.
+말투, 쟁점 대응, 근거 범위, 과도한 단정, 개인정보 노출을 보수적으로 검토한다.
+초안을 최종 승인하거나 직접 배포하지 말고 검수 결과만 낸다.
+반드시 설명이나 코드블록 없이 다음 키를 모두 가진 JSON 객체만 출력한다.
+checks의 passed와 최상위 passed는 JSON boolean이어야 한다.
 {
-  "checks": [{"criterion": "말투|근거|환각|누락", "pass": true, "comment": "한 줄"}],
-  "score": 0~100,
-  "final": "최종 답변 전문"
+  "passed": true,
+  "score": 0,
+  "checks": [{"criterion": "말투", "passed": true, "comment": "검토 의견"}],
+  "reasons": [],
+  "suggested_final": null
 }"""
 
     def __init__(self, llm: OpenRouterClient) -> None:
         self.llm = llm
 
-    def run(self, context: AgentContext, emit: EventSink) -> None:
-        emit(stage_start("review", "초안의 근거와 표현을 검수 중"))
+    def run(self, context: AgentContext) -> QualityReview:
         if self.llm.dry_run:
-            review = {
-                "checks": [
-                    {"criterion": "말투", "pass": True, "comment": "공직 답변체를 사용함"},
-                    {"criterion": "근거", "pass": True, "comment": "로컬 근거 후보 범위 내에서 작성됨"},
-                    {"criterion": "환각", "pass": True, "comment": "구체 조문 번호 단정 없음"},
-                    {"criterion": "누락", "pass": True, "comment": "핵심 문의에 대한 확인 절차 안내 포함"},
-                ],
-                "score": 82,
-                "final": context.draft,
-            }
-        else:
-            result = self.llm.chat_json(
-                model=context.models.review,
-                system=self.SYSTEM,
-                user=_review_prompt(context),
-                max_tokens=2000,
-            )
-            context.usage["review"] = result.usage
-            review = parse_json_object(result.text) or {"checks": [], "score": 0, "final": context.draft}
-        context.final = str(review.get("final") or context.draft)
-        emit(stage_done("review", "검수 완료", {"review": review, "final": context.final}))
+            return _dry_quality_review(context)
+        result = self.llm.chat_json(
+            model=context.models.review,
+            system=self.SYSTEM,
+            user=_quality_prompt(context),
+            max_tokens=1_500,
+        )
+        _reject_truncated(result.finish_reason, "quality")
+        context.usage[f"quality_{context.revision_count}"] = result.usage
+        data = parse_json_object(result.text)
+        if data is None:
+            raise ValueError("quality model did not return a JSON object")
+        return QualityReview.from_dict(data)
 
 
-def build_agents(llm: OpenRouterClient) -> list[Agent]:
-    return [IntakeAgent(), ClassifyAgent(llm), RetrieveAgent(), DraftAgent(llm), ReviewAgent(llm)]
+class PolicyGateAgent:
+    name = "PolicyGateAgent"
+
+    def __init__(self, gate: PolicyGate | None = None) -> None:
+        self.gate = gate or PolicyGate()
+
+    def run(self, context: AgentContext) -> GateDecision:
+        return self.gate.decide(
+            _require(context.analysis, "analysis"),
+            _require(context.evidence, "evidence"),
+            _require(context.draft, "draft"),
+            _require(context.grounding_review, "grounding_review"),
+            _require(context.quality_review, "quality_review"),
+            revision_count=context.revision_count,
+        )
+
+    def final_for(self, context: AgentContext, decision: GateDecision) -> str | None:
+        return self.gate.final_for(decision, _require(context.draft, "draft"))
 
 
-def _heuristic_classify(title: str, body: str) -> dict[str, object]:
-    text = f"{title}\n{body}"
-    rules = [
-        ("인사", "공무원임용령", ["승진소요최저연수", "승진", "임용", "전보", "경력", "의원면직", "재임용"]),
-        ("여비", "공무원 여비 규정", ["출장", "자가차량", "유가", "여비", "운임"]),
-        ("보수·수당", "공무원수당 등에 관한 규정", ["수당", "초과근무", "시간외", "정근", "명예퇴직"]),
-        ("복무", "국가공무원 복무규정", ["육아휴직", "휴직", "유연근무", "출장", "복무", "휴가"]),
-        ("채용·시험", "공무원임용시험령", ["7급", "시험", "한국사", "국가고시", "채용", "응시"]),
-        ("시스템", "사이버국가고시센터 안내", ["비밀번호", "이메일", "로그인", "사이버국가고시센터"]),
-    ]
-    for category, law, terms in rules:
-        matched = [term for term in terms if term in text]
-        if matched:
-            law_queries = [law]
-            if category == "인사":
-                law_queries.append("공무원 임용규칙")
-            if category in {"인사", "복무"}:
-                law_queries.insert(0, "국가공무원법")
-            return {
-                "department": "인사혁신처 또는 관계 소관 부서",
-                "category": category,
-                "difficulty": "중",
-                "sensitive": _is_sensitive(text),
-                "issues": [f"{category} 관련 기준 확인"],
-                "law_queries": law_queries,
-                "keywords": matched[:8],
-            }
-    return {
-        "department": "소관 부서 확인 필요",
-        "category": "기타",
-        "difficulty": "중",
-        "sensitive": _is_sensitive(text),
-        "issues": ["민원 요지 확인", "소관 및 근거 확인"],
-        "law_queries": [],
-        "keywords": _keywords(text),
-    }
+@dataclass(frozen=True)
+class AgentSuite:
+    intake: IntakeAgent
+    analyze: AnalyzeAgent
+    retrieve: EvidenceAgent
+    draft: DraftAgent
+    grounding: GroundingReviewAgent
+    quality: QualityReviewAgent
+    gate: PolicyGateAgent
 
 
-def _is_sensitive(text: str) -> bool:
-    signals = ["모독", "탄핵", "부당", "항의", "고발", "불법", "왜 "]
-    return any(signal in text for signal in signals)
-
-
-def _keywords(text: str) -> list[str]:
-    tokens = re.findall(r"[가-힣A-Za-z0-9]{2,}", text)
-    stop = {"안녕하십니까", "문의드립니다", "관련하여", "궁금합니다", "수고하세요"}
-    out: list[str] = []
-    for token in tokens:
-        if token in stop or token in out:
-            continue
-        out.append(token)
-        if len(out) >= 8:
-            break
-    return out
-
-
-def _evidence_score(
-    item: Evidence, law_queries: list[str], keywords: list[str], minwon: Minwon
-) -> tuple[int, list[str]]:
-    haystack = f"{item.title} {item.summary}"
-    matched: list[str] = []
-    score = 0
-    for query in law_queries:
-        if query and (query in item.title or item.title in query):
-            score += 5
-            matched.append(query)
-    for keyword in keywords:
-        if keyword and keyword in haystack:
-            score += 1
-            matched.append(keyword)
-    return score, matched
-
-
-def _str_list(value: object, *, fallback: list[str]) -> list[str]:
-    if isinstance(value, list):
-        cleaned = [str(v).strip() for v in value if str(v).strip()]
-        return cleaned or fallback
-    return fallback
-
-
-def _draft_prompt(context: AgentContext) -> str:
-    cls = context.classification
-    evidence = "\n".join(
-        f"- {e.title}: {e.summary} (source={e.source}, matched={', '.join(e.matched_keywords)})"
-        for e in context.evidence
+def build_agents(llm: OpenRouterClient) -> AgentSuite:
+    return AgentSuite(
+        intake=IntakeAgent(),
+        analyze=AnalyzeAgent(llm),
+        retrieve=EvidenceAgent(),
+        draft=DraftAgent(llm),
+        grounding=GroundingReviewAgent(),
+        quality=QualityReviewAgent(llm),
+        gate=PolicyGateAgent(),
     )
-    return f"""[민원]
-신청번호: {context.minwon.request_id}
-제목: {context.minwon.title}
+
+
+def _require(value: object | None, name: str):
+    if value is None:
+        raise RuntimeError(f"{name} artifact is required")
+    return value
+
+
+def _reject_truncated(finish_reason: str | None, stage: str) -> None:
+    if finish_reason == "length":
+        raise ValueError(f"{stage} model response was truncated")
+
+
+def _draft_prompt(
+    context: AgentContext,
+    *,
+    revision: int,
+    feedback: tuple[str, ...],
+) -> str:
+    intake = _require(context.intake, "intake")
+    analysis_artifact = _require(context.analysis, "analysis")
+    evidence = _require(context.evidence, "evidence")
+    evidence_payload = [item.to_dict() for item in evidence.items]
+    feedback_text = "\n".join(f"- {reason}" for reason in feedback) or "- 없음"
+    return f"""[민원 - 개인정보 마스킹본]
+제목: {intake.masked_title}
 본문:
-{context.minwon.body}
+{intake.masked_body}
 
-[분류]
-{json.dumps(asdict(cls) if cls else {}, ensure_ascii=False)}
+[분석]
+{json.dumps(analysis_artifact.to_dict(), ensure_ascii=False, indent=2)}
 
-[근거 후보]
-{evidence}
+[사용 가능한 근거 후보]
+{json.dumps(evidence_payload, ensure_ascii=False, indent=2)}
 
-위 정보를 바탕으로 민원 답변 초안을 작성하라."""
+[작성 회차]
+{revision}
+
+[이전 검수 피드백]
+{feedback_text}
+
+근거 후보가 0개이면 법적 결론을 내리지 말고 담당 부서의 사실관계 및 최신 공식 자료 확인을 안내하라."""
 
 
-def _review_prompt(context: AgentContext) -> str:
-    evidence = "\n".join(f"- {e.title}: {e.summary}" for e in context.evidence)
-    return f"""[민원 제목]
-{context.minwon.title}
+def _quality_prompt(context: AgentContext) -> str:
+    intake = _require(context.intake, "intake")
+    analysis_artifact = _require(context.analysis, "analysis")
+    evidence = _require(context.evidence, "evidence")
+    draft = _require(context.draft, "draft")
+    return f"""[민원 - 개인정보 마스킹본]
+{intake.masked_title}
+{intake.masked_body}
 
-[근거 후보]
-{evidence}
+[분석]
+{json.dumps(analysis_artifact.to_dict(), ensure_ascii=False)}
+
+[허용 근거]
+{json.dumps(evidence.to_dict(), ensure_ascii=False)}
 
 [초안]
-{context.draft}
+{draft.text}
 
-초안을 검수하고 JSON으로 최종본을 작성하라."""
+점수 80점 이상이고 모든 check가 통과한 경우에만 passed=true로 표시하라."""
 
 
-def _dry_draft(context: AgentContext) -> str:
-    cls = context.classification
-    evidence_titles = ", ".join(e.title for e in context.evidence)
-    issues = ", ".join(cls.issues if cls else [])
-    return f"""안녕하십니까. 귀하께서 문의하신 사항에 대해 안내드립니다.
+def _dry_draft(
+    context: AgentContext,
+    *,
+    revision: int,
+    feedback: tuple[str, ...],
+) -> str:
+    intake = _require(context.intake, "intake")
+    analysis_artifact = _require(context.analysis, "analysis")
+    evidence = _require(context.evidence, "evidence")
+    issues = ", ".join(analysis_artifact.issues)
 
-귀하의 민원은 '{context.minwon.title}' 건으로, 주요 쟁점은 {issues or '민원 요지 확인'}으로 파악됩니다.
+    lines = [
+        "안녕하십니까. 귀하께서 문의하신 사항에 대해 다음과 같이 안내드립니다.",
+        "",
+        f"귀하의 민원은 ‘{intake.masked_title}’에 관한 것으로, 주요 쟁점은 {issues}로 파악됩니다.",
+        "",
+    ]
+    if evidence.items:
+        lines.append("현재 확인한 공식 근거 후보는 다음과 같습니다.")
+        for item in evidence.items:
+            lines.append(
+                f"- {item.title}: {item.excerpt} [{item.id}]"
+            )
+        lines.extend(
+            [
+                "",
+                "위 근거는 답변 작성을 위한 후보 자료입니다. 실제 적용 여부는 민원인의 소속, 적용 시점, 구체적 사실관계와 최신 법령·행정규칙을 담당 부서가 다시 확인해야 합니다.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "현재 로컬 근거 목록에서는 민원에 직접 대응하는 공식 근거 후보를 특정하지 못했습니다.",
+                "따라서 현 단계에서 법적 결론을 단정하지 않으며, 소관 부서가 사실관계와 최신 공식 자료를 확인한 뒤 회신해야 합니다.",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "이 문서는 업무 지원을 위해 자동 생성된 초안이며, 담당자의 검토와 결재 전에는 대외 답변으로 사용할 수 없습니다.",
+            "감사합니다.",
+        ]
+    )
+    if revision == 1 and feedback:
+        # The deterministic rewrite keeps the public-facing body clean while
+        # ensuring any prior metadata mismatch is rebuilt from current evidence.
+        lines.insert(-2, "검수 의견을 반영하여 근거 표시와 안내 문구를 다시 확인했습니다.")
+    return "\n".join(lines)
 
-현재 확인 가능한 근거 후보는 {evidence_titles or '소관 부서 확인 필요'}입니다. 다만 본 답변은 자동 생성 초안이므로, 실제 회신 전에는 해당 법령의 최신 조문과 소관 부서의 유권해석을 반드시 확인해야 합니다.
 
-문의하신 사항은 관련 규정과 사실관계에 따라 처리 가능 여부가 달라질 수 있으므로, 민원 본문에 적힌 구체적 기간, 대상, 신청 경위 등을 기준으로 담당 부서에서 최종 판단하는 것이 적절합니다.
+def _dry_quality_review(context: AgentContext) -> QualityReview:
+    analysis_artifact = _require(context.analysis, "analysis")
+    evidence = _require(context.evidence, "evidence")
+    draft = _require(context.draft, "draft")
+    text = draft.text
+    known_ids = {item.id for item in evidence.items}
+    embedded_ids = {match.upper() for match in _CITATION_RE.findall(text)}
 
-추가 자료가 필요한 경우 신청번호 {context.minwon.request_id}를 기준으로 보완 요청 또는 유선 안내를 병행하시기 바랍니다. 감사합니다."""
+    checks_data = [
+        (
+            "말투",
+            "안녕하십니까" in text and "감사합니다" in text,
+            "정중한 공직 답변체와 인사말을 확인했습니다.",
+        ),
+        (
+            "쟁점 대응",
+            any(issue in text for issue in analysis_artifact.issues),
+            "분석 단계의 핵심 쟁점이 초안에 반영되었습니다.",
+        ),
+        (
+            "근거 범위",
+            bool(known_ids) and bool(embedded_ids) and embedded_ids <= known_ids,
+            "초안의 근거 ID가 검색 결과 범위 안에 있습니다.",
+        ),
+        (
+            "과도한 단정",
+            not any(
+                phrase in text
+                for phrase in ("반드시 지급됩니다", "위법입니다", "확정됩니다", "무조건 가능합니다")
+            ),
+            "확인되지 않은 법적 결론을 단정하지 않았습니다.",
+        ),
+        (
+            "개인정보",
+            not contains_pii(text),
+            "지원하는 주민번호·이메일·전화번호 패턴의 노출이 없습니다.",
+        ),
+    ]
+    checks = tuple(
+        QualityCheck(
+            criterion=criterion,
+            passed=passed,
+            comment=comment if passed else f"재검토 필요: {comment}",
+        )
+        for criterion, passed, comment in checks_data
+    )
+    failed = tuple(f"QUALITY_CHECK_FAILED:{check.criterion}" for check in checks if not check.passed)
+    score = round(100 * sum(check.passed for check in checks) / len(checks))
+    passed = score >= 80 and not failed
+    return QualityReview(
+        passed=passed,
+        score=score,
+        checks=checks,
+        reasons=failed,
+        suggested_final=None,
+    )

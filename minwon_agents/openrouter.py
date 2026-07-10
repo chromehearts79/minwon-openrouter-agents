@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -17,18 +18,19 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 class LlmResult:
     text: str
     usage: Usage
+    finish_reason: str | None = None
 
 
 class OpenRouterClient:
     def __init__(self, *, dry_run: bool = False) -> None:
         self.dry_run = dry_run
         self.api_key = os.getenv("OPENROUTER_API_KEY", "")
-        if not dry_run and not self.api_key:
+        if not dry_run and (not self.api_key or self.api_key == "sk-or-..."):
             raise RuntimeError("OPENROUTER_API_KEY is required unless --dry-run is used")
 
     def chat_json(self, *, model: str, system: str, user: str, max_tokens: int = 900) -> LlmResult:
         if self.dry_run:
-            return LlmResult(text="{}", usage=Usage())
+            return LlmResult(text="{}", usage=Usage(), finish_reason="dry-run")
         return self._request(
             {
                 "model": model,
@@ -52,7 +54,7 @@ class OpenRouterClient:
         temperature: float = 0.4,
     ) -> LlmResult:
         if self.dry_run:
-            return LlmResult(text="", usage=Usage())
+            return LlmResult(text="", usage=Usage(), finish_reason="dry-run")
         return self._request(
             {
                 "model": model,
@@ -80,19 +82,44 @@ class OpenRouterClient:
         )
         try:
             with urllib.request.urlopen(req, timeout=90) as res:
-                payload = json.loads(res.read().decode("utf-8"))
+                raw = res.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             msg = exc.read().decode("utf-8", errors="replace")[:500]
             raise RuntimeError(f"OpenRouter HTTP {exc.code}: {msg}") from exc
+        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+            raise RuntimeError(f"OpenRouter network error: {exc}") from exc
 
-        text = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("OpenRouter returned invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError("OpenRouter returned a non-object response")
+
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise RuntimeError("OpenRouter response has no completion choice")
+        choice = choices[0]
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            raise RuntimeError("OpenRouter response has no message")
+        text = message.get("content")
+        if not isinstance(text, str) or not text.strip():
+            raise RuntimeError("OpenRouter returned empty content")
         usage_raw = payload.get("usage") or {}
+        if not isinstance(usage_raw, dict):
+            usage_raw = {}
         usage = Usage(
-            input_tokens=int(usage_raw.get("prompt_tokens") or 0),
-            output_tokens=int(usage_raw.get("completion_tokens") or 0),
-            cost_usd=float(usage_raw.get("cost") or 0.0),
+            input_tokens=_safe_int(usage_raw.get("prompt_tokens")),
+            output_tokens=_safe_int(usage_raw.get("completion_tokens")),
+            cost_usd=_safe_float(usage_raw.get("cost")),
         )
-        return LlmResult(text=text, usage=usage)
+        finish_reason = choice.get("finish_reason")
+        return LlmResult(
+            text=text,
+            usage=usage,
+            finish_reason=str(finish_reason) if finish_reason is not None else None,
+        )
 
 
 def parse_json_object(text: str) -> dict[str, Any] | None:
@@ -110,3 +137,16 @@ def parse_json_object(text: str) -> dict[str, Any] | None:
                 return None
     return None
 
+
+def _safe_int(value: object) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_float(value: object) -> float:
+    try:
+        return max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        return 0.0

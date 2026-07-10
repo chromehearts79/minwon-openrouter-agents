@@ -1,0 +1,120 @@
+{
+  "schema_version": "1.0",
+  "description": "민원 하네스의 분류·라우팅·근거 연결을 확인하는 대표 회귀 평가셋입니다. 하나의 정답 문자열보다 허용 범위와 필수 포함 조건을 사용해 구현 세부사항을 과도하게 고정하지 않습니다.",
+  "source": "data/minwon_sample.xlsx",
+  "cases": [
+    {
+      "id": "system-password-mail",
+      "row": 3,
+      "purpose": "시험이라는 주변 맥락보다 시스템 장애가 우선 분류되는지 확인",
+      "expected": {
+        "allowed_primary_categories": ["시스템"],
+        "required_categories": ["시스템"],
+        "allowed_statuses": ["completed"],
+        "evidence_any_of": ["E8"]
+      }
+    },
+    {
+      "id": "promotion-minimum-years",
+      "row": 4,
+      "purpose": "임용·승진 민원을 인사로 분류하고 관련 임용 근거를 연결",
+      "expected": {
+        "allowed_primary_categories": ["인사"],
+        "required_categories": ["인사"],
+        "allowed_statuses": ["completed"],
+        "evidence_any_of": ["E2", "E3"]
+      }
+    },
+    {
+      "id": "retirement-allowance-interpretation",
+      "row": 12,
+      "purpose": "퇴직 관련 수당 법령 해석 문의의 주 분류와 근거 연결",
+      "expected": {
+        "allowed_primary_categories": ["보수·수당"],
+        "required_categories": ["보수·수당"],
+        "allowed_statuses": ["completed", "human_review_required"],
+        "evidence_any_of": ["E1", "E5", "E13"]
+      }
+    },
+    {
+      "id": "overtime-and-local-travel",
+      "row": 17,
+      "purpose": "수당과 여비가 함께 있는 다중 분류 및 교차 근거 확인",
+      "expected": {
+        "allowed_primary_categories": ["보수·수당", "여비"],
+        "required_categories": ["보수·수당", "여비"],
+        "secondary_any_of": ["보수·수당", "여비"],
+        "allowed_statuses": ["completed"],
+        "evidence_any_of": ["E5", "E6"]
+      }
+    },
+    {
+      "id": "flex-work-return-time",
+      "row": 18,
+      "purpose": "유연근무와 출장 상황의 핵심을 복무로 분류",
+      "expected": {
+        "allowed_primary_categories": ["복무", "여비"],
+        "required_categories": ["복무"],
+        "allowed_statuses": ["completed"],
+        "evidence_any_of": ["E4", "E6"]
+      }
+    },
+    {
+      "id": "political-appointment-opinion",
+      "row": 20,
+      "purpose": "정책 의견을 채용 문의로 오분류하지 않고 사람 검토로 보냄",
+      "expected": {
+        "allowed_primary_categories": ["정책의견"],
+        "required_categories": ["정책의견"],
+        "allowed_statuses": ["human_review_required"],
+        "expected_sensitive": true,
+        "evidence_policy": "optional"
+      }
+    },
+    {
+      "id": "criminal-case-and-discipline",
+      "row": 25,
+      "purpose": "범죄·징계 관련 민감 민원의 자동 공개 차단",
+      "expected": {
+        "allowed_primary_categories": ["기타", "복무", "인사"],
+        "allowed_statuses": ["human_review_required"],
+        "expected_sensitive": true,
+        "evidence_any_of": ["E9", "E10"]
+      }
+    },
+    {
+      "id": "salary-overpayment-limitation",
+      "row": 27,
+      "purpose": "급여 환수·소멸시효 문의에서 근거 부족 시 보수적 라우팅",
+      "expected": {
+        "allowed_primary_categories": ["보수·수당", "인사"],
+        "required_categories": ["보수·수당"],
+        "allowed_statuses": ["completed", "human_review_required"],
+        "evidence_policy": "optional"
+      }
+    },
+    {
+      "id": "overtime-calculation",
+      "row": 31,
+      "purpose": "초과근무 수당과 복무시간의 다중 쟁점 보존",
+      "expected": {
+        "allowed_primary_categories": ["보수·수당"],
+        "required_categories": ["보수·수당"],
+        "secondary_any_of": ["복무"],
+        "allowed_statuses": ["completed"],
+        "evidence_any_of": ["E4", "E5"]
+      }
+    },
+    {
+      "id": "retroactive-service-allowance",
+      "row": 39,
+      "purpose": "정근수당 소급 문의의 수당 분류와 공식 근거 후보 연결",
+      "expected": {
+        "allowed_primary_categories": ["보수·수당"],
+        "required_categories": ["보수·수당"],
+        "allowed_statuses": ["completed", "human_review_required"],
+        "evidence_any_of": ["E5"]
+      }
+    }
+  ]
+}
